@@ -8,7 +8,7 @@ import { enrichInstruments, type LineLabel } from "./digitize.ts";
 import { assignIds, normTag, safeId } from "./merge.ts";
 import type { Token } from "./ocr.ts";
 import { CONNECT_SCHEMA, systemPrompt } from "./prompts.ts";
-import { applyGeometry, closeOpenEnds, computeNets, drawNets, fitBubbles, fitEquipment, labelLeaders, joinDrawnPipes, nozzleLabels, tagsFromText, linkByNets, netAgreement, netEvidence, placeOrphans } from "./vectorlayer.ts";
+import { applyGeometry, closeOpenEnds, computeNets, drawNets, fitBubbles, fitSymbols, fitEquipment, labelLeaders, joinDrawnPipes, nozzleLabels, tagsFromText, linkByNets, netAgreement, netEvidence, placeOrphans } from "./vectorlayer.ts";
 import { linkInstruments } from "./instlinks.ts";
 import { writeDrawingXml } from "./xml.ts";
 
@@ -82,6 +82,8 @@ export async function connect(ctx: RunContext) {
   if (tagged.length) ctx.log("connect", `vector layer: ${tagged.length} instruments without tag take their printed letter code: ${tagged.join(", ")}`);
   const fitted = fitBubbles(ctx, model, pages);
   if (fitted) ctx.log("connect", `vector layer: ${fitted} instrument boxes set to their drawn bubble`);
+  const symbols = fitSymbols(ctx, model, pages);
+  if (symbols.length) ctx.log("connect", `vector layer: ${symbols.length} valve boxes from their printed tag to the drawn symbol: ${symbols.join("; ")}`);
   // vector layer: the drawn lines of the PDF, cut at every symbol (nothing on a scanned sheet)
   const netsByPage = computeNets(ctx, model, pages);
   for (const page of pages) {

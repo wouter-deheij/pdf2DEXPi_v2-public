@@ -280,6 +280,161 @@ export function fitBubbles(ctx: RunContext, model: DrawingModel, pages: { n: num
   return n;
 }
 
+// ---------------------------------------------------------------- valve symbols
+
+/**
+ * Valve and piping-component boxes that OCR anchored on their printed tag, to the drawn symbol next
+ * to it. A tag sits beside its valve, so such a box covers the words, not the symbol: the pipe runs
+ * through the symbol without reaching the box, and the symbol's strokes read as drawn pipe. A symbol
+ * is a small cluster of short solid strokes joined end to end, holding at least one slanted stroke
+ * (bow tie, check-valve flap, reducer) and fed by a pipe. Each tag-anchored item takes the nearest
+ * such cluster within about one symbol size that lies in no other item's box; a cluster serves one item.
+ */
+export function fitSymbols(ctx: RunContext, model: DrawingModel, pages: { n: number; W: number; H: number }[]): string[] {
+  const v = loadVector(ctx, pages);
+  const notes: string[] = [];
+  const PIPED = new Set(["valve", "piping_component"]);
+  const TAG_NOTE = "position anchored on the printed tag (OCR)";
+  const len = (s: Seg) => Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]);
+  const ctr = (b: BBox): Pt => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+  const gapB = (a: BBox, b: BBox) => Math.hypot(Math.max(0, a[0] - b[2], b[0] - a[2]), Math.max(0, a[1] - b[3], b[1] - a[3]));
+  for (const pg of pages) {
+    const vp = v.get(pg.n);
+    if (!vp || vp.kind !== "vector") continue;
+    const items = model.items.filter((i) => i.page === pg.n);
+    const todo = items.filter((i) => PIPED.has(i.category) && i.note?.includes(TAG_NOTE));
+    if (!todo.length) continue;
+    // the sheet's symbol size: median of the square-ish valve boxes not anchored on a tag
+    const sym = items.filter((i) => PIPED.has(i.category) && !i.note?.includes(TAG_NOTE)).map((i) => [i.bbox[2] - i.bbox[0], i.bbox[3] - i.bbox[1]]).filter(([w, h]) => w <= 1.6 * h && h <= 1.6 * w).map(([w, h]) => Math.max(w, h)).sort((a, b) => a - b);
+    const S = sym.length >= 3 ? sym[sym.length >> 1] : 0.006 * pg.W;
+    const solid = vp.segs.filter((s) => !s.curve && !s.dash && !s.hop);
+    const short = solid.filter((s) => len(s) <= 1.2 * S && len(s) >= 0.5);
+    // clusters: short strokes meeting end to end
+    const parent = short.map((_, k) => k);
+    const find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k])));
+    const grid = new Map<string, number[]>();
+    const cell = (p: Pt) => `${Math.floor(p[0] / 4)},${Math.floor(p[1] / 4)}`;
+    short.forEach((s, k) => {
+      for (const p of [s.a, s.b]) {
+        const [gx, gy] = [Math.floor(p[0] / 4), Math.floor(p[1] / 4)];
+        for (let dx = -1; dx <= 1; dx++)
+          for (let dy = -1; dy <= 1; dy++)
+            for (const j of grid.get(`${gx + dx},${gy + dy}`) ?? []) {
+              const t = short[j];
+              if ([t.a, t.b].some((q) => Math.abs(q[0] - p[0]) <= 1.5 && Math.abs(q[1] - p[1]) <= 1.5)) parent[find(j)] = find(k);
+            }
+      }
+      for (const p of [s.a, s.b]) (grid.get(cell(p as Pt)) ?? grid.set(cell(p as Pt), []).get(cell(p as Pt))!).push(k);
+    });
+    const groups = new Map<number, Seg[]>();
+    short.forEach((s, k) => (groups.get(find(k)) ?? groups.set(find(k), []).get(find(k))!).push(s));
+    const long = solid.filter((s) => len(s) > 1.2 * S);
+    // a pipe drawn through the symbol (a stroke crossing its box) or ending on its edge
+    const fed = (b: BBox) =>
+      long.some((s) => {
+        let [t0, t1] = [0, 1];
+        const d = [s.b[0] - s.a[0], s.b[1] - s.a[1]];
+        for (let k = 0; k < 2; k++) {
+          const lo = b[k] - 2 - s.a[k], hi = b[k + 2] + 2 - s.a[k];
+          if (Math.abs(d[k]) < 1e-9) {
+            if (lo > 0 || hi < 0) return false;
+            continue;
+          }
+          const [u, w] = [lo / d[k], hi / d[k]].sort((x, y) => x - y);
+          [t0, t1] = [Math.max(t0, u), Math.min(t1, w)];
+          if (t0 > t1) return false;
+        }
+        return true;
+      });
+    const raw: BBox[] = [], parts: { b: BBox; segs: Seg[] }[] = [];
+    for (const g of groups.values()) {
+      if (g.length < 3) continue;
+      const xs = g.flatMap((s) => [s.a[0], s.b[0]]), ys = g.flatMap((s) => [s.a[1], s.b[1]]);
+      const b: BBox = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      const w = b[2] - b[0], h = b[3] - b[1];
+      if (Math.max(w, h) > 2 * S || Math.max(w, h) < 0.3 * S) continue;
+      const slanted = g.some((s) => {
+        const L = len(s), dx = Math.abs(s.b[0] - s.a[0]), dy = Math.abs(s.b[1] - s.a[1]);
+        return L >= 0.25 * S && dx >= 0.25 * L && dy >= 0.25 * L;
+      });
+      parts.push({ b, segs: g });
+      if (slanted) raw.push(b);
+    }
+    const arcs = vp.segs.filter((s) => s.curve);
+    // parts of one symbol are one cluster: overlapping parts (body and flap drawn apart), and the two
+    // halves of a ball valve split by its circle (lined up, a small gap between)
+    const span = (a: BBox, b: BBox, k: 0 | 1) => Math.max(0, Math.min(a[k + 2], b[k + 2]) - Math.max(a[k], b[k]));
+    const oneSymbol = (a: BBox, b: BBox) => {
+      const ov = span(a, b, 0) * span(a, b, 1);
+      const small = Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]));
+      if (ov > 0 && ov >= 0.3 * small) return true;
+      const u: BBox = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+      if (Math.max(u[2] - u[0], u[3] - u[1]) > 2 * S) return false;
+      return ([0, 1] as const).some((k) => {
+        const o = k ? 0 : 1; // lined up across axis o, apart along axis k, the ball drawn in the gap
+        const narrow = Math.min(a[o + 2] - a[o], b[o + 2] - b[o]);
+        const lo = Math.min(a[k + 2], b[k + 2]), hi = Math.max(a[k], b[k]);
+        if (!(narrow > 0 && span(a, b, o as 0 | 1) >= 0.7 * narrow && hi - lo >= 0 && hi - lo <= S)) return false;
+        return arcs.some((c) => [c.a, c.b].every((q) => q[k] >= lo - 1 && q[k] <= hi + 1 && q[o] >= u[o] - 1 && q[o] <= u[o + 2] + 1));
+      });
+    };
+    for (let merged = true; merged; ) {
+      merged = false;
+      for (let i = 0; i < raw.length && !merged; i++)
+        for (let k = i + 1; k < raw.length && !merged; k++) {
+          const [a, b] = [raw[i], raw[k]];
+          if (!oneSymbol(a, b)) continue;
+          raw[i] = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+          raw.splice(k, 1);
+          merged = true;
+        }
+    }
+    const clusters = raw.filter((b) => {
+      if (Math.max(b[2] - b[0], b[3] - b[1]) > 2 * S || !fed(b)) return false;
+      // inside another item's box: that item's own drawing
+      const c = ctr(b);
+      return !items.some((i) => !todo.includes(i) && c[0] > i.bbox[0] && c[0] < i.bbox[2] && c[1] > i.bbox[1] && c[1] < i.bbox[3]);
+    });
+    // a box that already lies on a drawn symbol on a pipe stays: the tag was printed on or over it
+    const onSymbol = (it: Item) => {
+      const b = it.bbox;
+      const hit = parts.find((p) => fed(p.b) && p.segs.some((s) => {
+        const m = [(s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2];
+        return m[0] > b[0] + 1 && m[0] < b[2] - 1 && m[1] > b[1] + 1 && m[1] < b[3] - 1;
+      }));
+      return !!hit;
+    };
+    const pairs: { it: Item; b: BBox; d: number }[] = [];
+    const runnerUp = new Map<Item, number[]>();
+    for (const it of todo.filter((i) => !onSymbol(i)))
+      for (const b of clusters) {
+        if (gapB(it.bbox, b) > S) continue;
+        // a symbol inside another item's box is that item's
+        const c = ctr(b);
+        if (items.some((i) => i !== it && c[0] > i.bbox[0] && c[0] < i.bbox[2] && c[1] > i.bbox[1] && c[1] < i.bbox[3])) continue;
+        const d = Math.hypot(c[0] - ctr(it.bbox)[0], c[1] - ctr(it.bbox)[1]);
+        pairs.push({ it, b, d });
+        (runnerUp.get(it) ?? runnerUp.set(it, []).get(it)!).push(d);
+      }
+    // a tag about as near to two symbols says nothing about which is its own: leave it
+    const clear = (it: Item) => {
+      const ds = runnerUp.get(it)!.sort((a, b) => a - b);
+      return ds.length < 2 || ds[1] >= 1.3 * ds[0];
+    };
+    const done = new Set<Item>(), taken = new Set<BBox>();
+    for (const p of pairs.sort((a, b) => a.d - b.d)) {
+      if (done.has(p.it) || taken.has(p.b) || !clear(p.it)) continue;
+      done.add(p.it);
+      taken.add(p.b);
+      const nb = p.b.map(Math.round) as BBox;
+      notes.push(`${p.it.tag ?? p.it.id} ${p.it.bbox.join(",")} → ${nb.join(",")}`);
+      p.it.bbox = nb;
+      p.it.note = p.it.note!.replace(TAG_NOTE, "box on its drawn symbol beside the printed tag (vector layer)");
+    }
+  }
+  return notes;
+}
+
 // ---------------------------------------------------------------- equipment outlines
 
 /**

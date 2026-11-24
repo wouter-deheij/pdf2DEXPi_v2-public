@@ -99,6 +99,10 @@ Het model leest dezelfde tekening niet twee keer precies hetzelfde. Daarom wordt
     - Een net met een symbool in honderden mini-stukjes (een slang als golflijn) viel uiteen in delen zonder los uiteinde, waardoor `netPath` geen weg vond. Zulke delen worden nu via hun dichtstbijzijnde knopen gekoppeld.
     - Een terugslagklep met "junction" in de omschrijving gold als elektrisch kastje; alleen "junction box" telt nog.
     - R3_026 *leiding gevolgd* 92,6 → 97,0 %; R9 69,0 → 72,3 % (*op de PDF* 72,6 → 73,1 %); PID023 +0,2. Geen project slechter.
+  - Tweede ronde ("inline instrumenten"): de grootste paren bleken geen instrumenten op de leiding. Het waren kleppen waarvan OCR het kader op de tag-tekst had gezet; het klepsymbool zelf telde daardoor als gemiste leiding.
+    - `fitSymbols` (vectorlaag, naast `fitBubbles` en `fitEquipment`) zet zo'n kader op het getekende symbool ernaast: een klein cluster korte strepen met een schuine streep, waar een leiding doorheen loopt. De twee helften van een kogelkraan (met de kogel ertussen) zijn één symbool.
+    - Voorzichtig: een kader dat al op een symbool aan de leiding ligt blijft staan, een symbool in het kader van een ander item is van dat item, en een tag die ongeveer even dicht bij twee symbolen staat blijft onaangeroerd.
+    - PID016 *leiding gevolgd* 73,7 → 76,4 %; R10 73,2 → 74,7 % (*op de PDF* 87,4 → 87,5 %). Geen project slechter.
   - Verder: verzonnen lijnstukken per soort lijn, en de uitkomst van alle routes die de tekening vraagt.
 - **Openbare kopie.** Bij elke push naar `main` maakt de GitHub Action `.github/workflows/public-mirror.yml` een schone kopie en zet die in de openbare repo `pdf2DEXPi_v2-public`.
   - Wat eruit blijft: klanttekeningen (`input/`), antwoordsleutels (`reference/keys/`), `inspiration_corvic_ai/` en het gebouwde OCR-programma.

@@ -8,7 +8,7 @@ import { activateRun, archiveActive, clearActive, nextRunNo } from "./runs.ts";
 import { correct } from "./correct.ts";
 import { catalogFromProject } from "./tabulate.ts";
 import type { PageImage } from "./locate.ts";
-import { closeOpenEnds, computeNets, applyGeometry, fitBubbles, joinDrawnPipes, linkByNets, nozzleLabels, placeOrphans, tagsFromText } from "./vectorlayer.ts";
+import { closeOpenEnds, computeNets, applyGeometry, fitBubbles, fitSymbols, joinDrawnPipes, linkByNets, nozzleLabels, placeOrphans, tagsFromText } from "./vectorlayer.ts";
 import { locate } from "./locate.ts";
 import { digitize } from "./digitize.ts";
 import { verify } from "./verify.ts";
@@ -184,6 +184,7 @@ export function startCorrection(project: string, notes: string) {
 /** The vector layer over a read model: bubbles, tags from text, drawn nets, routes. */
 function vectorPass(ctx: RunContext, model: DrawingModel, pages: PageImage[]) {
   fitBubbles(ctx, model, pages);
+  fitSymbols(ctx, model, pages);
   tagsFromText(ctx, model, pages);
   const nets = computeNets(ctx, model, pages);
   if (!nets.size) return;

@@ -12,7 +12,7 @@ import { OUTPUT_DIR } from "./config.ts";
 import type { DrawingModel } from "./types.ts";
 import { RunContext } from "./pipeline/context.ts";
 import type { PageImage } from "./pipeline/locate.ts";
-import { closeOpenEnds, computeNets, drawNets, fitBubbles, fitEquipment, labelLeaders, joinDrawnPipes, tagsFromText, linkByNets, loadVector, netAgreement, placeOrphans, vectorSummary } from "./pipeline/vectorlayer.ts";
+import { closeOpenEnds, computeNets, drawNets, fitBubbles, fitEquipment, fitSymbols, labelLeaders, joinDrawnPipes, tagsFromText, linkByNets, loadVector, netAgreement, placeOrphans, vectorSummary } from "./pipeline/vectorlayer.ts";
 
 const args = process.argv.slice(2);
 const apply = args.includes("--apply");
@@ -35,6 +35,8 @@ for (const p of projects) {
   const tagged = tagsFromText(ctx, model, pages);
   if (tagged.length) console.log(`${p}: printed letter code for untagged instruments: ${tagged.join(", ")}`);
   const fitted = fitBubbles(ctx, model, pages);
+  const symbols = fitSymbols(ctx, model, pages);
+  if (symbols.length) console.log(`${p}: valve boxes from their printed tag to the drawn symbol: ${symbols.join("; ")}`);
   const nets = computeNets(ctx, model, pages);
   if (!nets.size) {
     console.log(`${p}: ${vectorSummary(v)} — nothing to do`);
