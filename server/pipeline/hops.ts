@@ -128,8 +128,21 @@ export function findHops(segs: Seg[], W: number): Hop[] {
     const t = (mid[o] - s.a[o]) / (s.b[o] - s.a[o]);
     return Math.abs(s.a[k] + t * (s.b[k] - s.a[k]) - mid[k]) < 0.35 * span;
   };
+  /** stroke width of the pipe on the line through P and Q: the nearest straight piece on it, beyond either end */
+  const pipeWidthAt = (P: Pt, Q: Pt, axis: "h" | "v"): number | null => {
+    const [k, o] = axis === "h" ? [0, 1] : [1, 0];
+    let best: number | null = null, bd = 0.03 * W;
+    for (const s of segs) {
+      if (s.curve || s.dash || axisOf(s) !== axis || dist(s.a, s.b) < 8 || Math.abs(s.a[o] - P[o]) > 1.5) continue;
+      for (const X of [P, Q]) for (const e of [s.a, s.b]) {
+        const d = Math.abs(e[k] - X[k]);
+        if (d < bd && (e[k] - X[k]) * (X === P ? P[k] - Q[k] : Q[k] - P[k]) >= -1) [best, bd] = [s.w, d];
+      }
+    }
+    return best;
+  };
   for (const [pid, ps] of byPath) {
-    if (ps.length < 4 || ps.length > 24 || ps.some((s) => s.curve || s.dash)) continue;
+    if (ps.length < 4 || ps.length > 48 || ps.some((s) => s.curve || s.dash)) continue;
     if (ps.slice(1).some((s, k) => dist(ps[k].b, s.a) > 0.6)) continue; // one chain
     const P = ps[0].a, Q = ps[ps.length - 1].b, span = dist(P, Q);
     if (span < 0.002 * W || span > 0.012 * W) continue;
@@ -140,13 +153,22 @@ export function findHops(segs: Seg[], W: number): Hop[] {
     const off = ps.flatMap((s) => [s.a, s.b]).map((x) => (x[0] - P[0]) * u[1] - (x[1] - P[1]) * u[0]);
     if (Math.max(...off) > 0.5 && Math.min(...off) < -0.5) continue; // one side only
     const bulge = Math.max(...off.map(Math.abs));
-    if (bulge < 0.25 * span || bulge > 0.8 * span) continue;
-    // a line runs through the gap, across the pipe's axis
+    // lines through the gap, across the pipe's axis: one, or a few side by side (a row of hops in one path)
     const mid: Pt = [(P[0] + Q[0]) / 2, (P[1] + Q[1]) / 2];
-    if (!longLines.some((s) => across(s, axis, mid, span, bulge))) continue;
+    const [k, o] = axis === "h" ? [0, 1] : [1, 0];
+    const [lo, hi] = [Math.min(P[k], Q[k]), Math.max(P[k], Q[k])];
+    const at = longLines
+      .filter((s) => Math.abs(s.b[o] - s.a[o]) >= Math.abs(s.b[k] - s.a[k]) && Math.min(s.a[o], s.b[o]) < mid[o] - bulge && Math.max(s.a[o], s.b[o]) > mid[o] + bulge)
+      .map((s) => s.a[k] + ((mid[o] - s.a[o]) / (s.b[o] - s.a[o])) * (s.b[k] - s.a[k]))
+      .filter((c) => c > lo + 0.05 * span && c < hi - 0.05 * span);
+    const n = new Set(at.map((c) => Math.round(c / 3))).size;
+    if (!n || n > 4) continue;
+    if (n === 1 && !longLines.some((s) => across(s, axis, mid, span, bulge))) continue;
+    if (bulge < (0.25 * span) / n || bulge > 0.8 * span) continue;
     // both ends go on: the pipe, or the next hop's stub
     if (!anyEndNear(P, pid) || !anyEndNear(Q, pid)) continue;
-    add(P, Q, ps[0].w, pid, "poly");
+    // the bridge is the pipe, not the arc: an arc is often stroked thinner than its pipe
+    add(P, Q, pipeWidthAt(P, Q, axis) ?? ps[0].w, pid, "poly");
   }
 
   // 2. filled arc: a mesh of tiny pieces beside the gap
