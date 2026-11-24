@@ -4,6 +4,17 @@ import sharp from "sharp";
 import type { BBox, DrawingModel } from "../types.ts";
 import type { RunContext } from "./context.ts";
 import { computeNets, loadVector } from "./vectorlayer.ts";
+import { ROOT } from "../config.ts";
+
+/** per drawing: solid line widths that are no process lines (reference/overlay-legend.json) */
+function notPipeWidths(project: string): [number, number][] {
+  try {
+    const legend = JSON.parse(fs.readFileSync(path.join(ROOT, "reference", "overlay-legend.json"), "utf8"));
+    return (legend[project]?.notPipe ?? []).map((x: { w: [number, number] }) => x.w);
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Overlay score: how well our DEXPI drawing lies on the PDF. The DEXPI preview (SVG, millimetres,
@@ -43,6 +54,8 @@ export interface OverlayResult {
   misses: OverlayMiss[];
   extras: OverlayExtra[];
   nets: OverlayNetMiss[];
+  /** px of drawn solid line not counted as pipe because the drawing's legend says it is none */
+  ignored: number;
 }
 
 const STEP_MM = 0.5;
@@ -120,7 +133,7 @@ export function overlayScore(ctx: RunContext, model: DrawingModel, svg: string, 
   const pages = model.pages.map((pg) => ({ n: pg.n, file: path.join(dir, pg.image), rel: pg.image, W: pg.px[0], H: pg.px[1] }));
   const v = loadVector(ctx, pages);
   const vecPages = pages.filter((p) => v.get(p.n)?.kind === "vector");
-  const empty: OverlayResult = { vector: false, pages: [], precision: null, pipeRecall: null, signalRecall: null, misses: [], extras: [], nets: [] };
+  const empty: OverlayResult = { vector: false, pages: [], precision: null, pipeRecall: null, signalRecall: null, misses: [], extras: [], nets: [], ignored: 0 };
   if (!vecPages.length) return empty;
   const nets = computeNets(ctx, model, pages);
   const lines = ourLines(svg, model);
@@ -184,6 +197,12 @@ export function overlayScore(ctx: RunContext, model: DrawingModel, svg: string, 
     const labels = model.items.filter((i) => i.page === pg.n && i.label_box).map((i) => i.label_box!);
     for (const x of pageNets)
       if (labels.some((b) => x.len <= 4 * (b[2] - b[0]) && x.path.some(([a, c]) => [a, c].some((q) => gap(q, b) <= Math.max(12, 0.6 * (b[3] - b[1])))))) sheetWide.add(x.id);
+    const notPipe = notPipeWidths(ctx.state.project);
+    for (const x of pageNets)
+      if (!x.dash && notPipe.some(([lo, hi]) => x.w >= lo && x.w <= hi)) {
+        sheetWide.add(x.id);
+        res.ignored += Math.round(x.len);
+      }
     const process = new Set(pageNets.filter((x) => !sheetWide.has(x.id) && (x.touches.length || x.ends.some((q) => boxes.some((b) => gap(q, b) <= 3 * px)))).map((x) => x.id));
     for (let grew = true; grew; ) {
       grew = false;
