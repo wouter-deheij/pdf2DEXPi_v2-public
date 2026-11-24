@@ -83,6 +83,18 @@ Het model leest dezelfde tekening niet twee keer precies hetzelfde. Daarom wordt
   - Stopt met foutcode 1 als een project meer dan de afrondingsmarge (0,05 procentpunt) achteruitgaat op fit of signaal, of niet meer draait.
   - Varianten: `npm run ab -- main~3` (tegen een oudere commit) en `npm run ab -- HEAD R9 PID024` (alleen die projecten).
   - Zo blijft "de code mag niet slechter worden" een vaste controle. Gebruik: wijzigen → `npm run ab` → pas committen als er geen ✗ staat → daarna `npm run redexpi` op de projecten die ✓ beter laten zien.
+- **Verliesanalyse: `npm run loss`.** Laat zien waar de overlay-punten verloren gaan (alle projecten, in het geheugen, ca. 30 s; `npm run loss -- R9 -v` toont per oorzaak de grootste gevallen met plek en items).
+  - Elk getekend net wordt opgeknipt in stukken tussen de symbolen die het verbindt (kortste weg langs het net; een stuk in een lus, zoals een bypass, hoort bij het dichtstbijzijnde symbool aan elke kant). Elk gemist stuk krijgt een oorzaak:
+    - *geen item*: het net raakt zelf geen symbool;
+    - *open: niets gelezen*: het stuk loopt naar een los uiteinde zonder gelezen symbool (pijl, tekst, ongelezen symbool);
+    - *open: symbool vlakbij*: dat losse uiteinde ligt vlak bij een symbool dat het net niet raakt;
+    - *open einde*: overig, niet tussen twee symbolen;
+    - *niet in model*: het stuk ligt tussen symbolen die het model niet met een leiding verbindt;
+    - *route mislukt* (met de reden van de router);
+    - *geen route*: het model verbindt ze, maar er is geen route gevraagd;
+    - *andere weg*: er is wel een route getekend, maar elders.
+  - Signaallijnen idem, met de signaalkoppelingen van het model.
+  - Verder: verzonnen lijnstukken per soort lijn, en de uitkomst van alle routes die de tekening vraagt.
 - **Openbare kopie.** Bij elke push naar `main` maakt de GitHub Action `.github/workflows/public-mirror.yml` een schone kopie en zet die in de openbare repo `pdf2DEXPi_v2-public`.
   - Wat eruit blijft: klanttekeningen (`input/`), antwoordsleutels (`reference/keys/`), `inspiration_corvic_ai/` en het gebouwde OCR-programma.
   - Klant- en projectnamen worden vervangen door hun code (bijv. `R9-001`).

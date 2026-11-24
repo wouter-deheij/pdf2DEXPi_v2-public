@@ -19,7 +19,8 @@
     "vectorcheck": "tsx server/vectorcheck.ts",
     "compare": "tsx server/compare.ts",
     "overlay": "tsx server/overlay.ts",
-    "ab": "tsx server/ab.ts"
+    "ab": "tsx server/ab.ts",
+    "loss": "tsx server/loss.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",

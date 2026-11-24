@@ -22,6 +22,8 @@ import { computeNets, loadVector } from "./vectorlayer.ts";
 type Pt = [number, number];
 interface OurLine { id: string | null; kind: "pipe" | "instrument" | "signal"; page: number; pts: Pt[] }
 export interface OverlayMiss { page: number; bbox: BBox; length: number; touches: string[] }
+/** every drawn process net: its length and how much of it we miss (px), for the loss analysis */
+export interface OverlayNetMiss { page: number; net: string; dash: boolean; drawn: number; missed: number; /** missed px per piece of net.path */ pieces: number[] }
 export interface OverlayExtra { page: number; id: string | null; kind: string; length: number; bbox: BBox }
 export interface OverlayPage {
   n: number;
@@ -40,6 +42,7 @@ export interface OverlayResult {
   signalRecall: number | null;
   misses: OverlayMiss[];
   extras: OverlayExtra[];
+  nets: OverlayNetMiss[];
 }
 
 const STEP_MM = 0.5;
@@ -117,7 +120,7 @@ export function overlayScore(ctx: RunContext, model: DrawingModel, svg: string, 
   const pages = model.pages.map((pg) => ({ n: pg.n, file: path.join(dir, pg.image), rel: pg.image, W: pg.px[0], H: pg.px[1] }));
   const v = loadVector(ctx, pages);
   const vecPages = pages.filter((p) => v.get(p.n)?.kind === "vector");
-  const empty: OverlayResult = { vector: false, pages: [], precision: null, pipeRecall: null, signalRecall: null, misses: [], extras: [] };
+  const empty: OverlayResult = { vector: false, pages: [], precision: null, pipeRecall: null, signalRecall: null, misses: [], extras: [], nets: [] };
   if (!vecPages.length) return empty;
   const nets = computeNets(ctx, model, pages);
   const lines = ourLines(svg, model);
@@ -196,12 +199,15 @@ export function overlayScore(ctx: RunContext, model: DrawingModel, svg: string, 
     let [ph, pa, sh, sa] = [0, 0, 0, 0];
     for (const net of pageNets) {
       if (!process.has(net.id)) continue;
-      let netMiss = 0;
+      let netMiss = 0, netAll = 0;
+      const pieceMiss: number[] = [];
       for (const [a, b] of net.path) {
+        const before = netMiss;
         let run: Pt[] = [];
         for (const p of samples([a, b], step)) {
           if (inSymbol(p) || nearEquipment(p)) continue;
           const on = mine.near(p, tol);
+          netAll++;
           if (net.dash) [sh, sa] = [sh + (on ? 1 : 0), sa + 1];
           else [ph, pa] = [ph + (on ? 1 : 0), pa + 1];
           if (!on) {
@@ -213,7 +219,9 @@ export function overlayScore(ctx: RunContext, model: DrawingModel, svg: string, 
           }
         }
         if (run.length >= 2) miss.push(run);
+        pieceMiss.push(Math.round((netMiss - before) * step));
       }
+      res.nets.push({ page: pg.n, net: net.id, dash: net.dash, drawn: Math.round(netAll * step), missed: Math.round(netMiss * step), pieces: pieceMiss });
       if (netMiss * step >= 40) res.misses.push({ page: pg.n, bbox: net.bbox as BBox, length: Math.round(netMiss * step), touches: net.touches.map((t) => t.item) });
     }
     res.pages.push({ n: pg.n, precision: ratio(h, o), pipeRecall: ratio(ph, pa), signalRecall: ratio(sh, sa), ours: Math.round(o * step), drawnPipe: Math.round(pa * step), drawnSignal: Math.round(sa * step) });
