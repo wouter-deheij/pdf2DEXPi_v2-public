@@ -94,6 +94,11 @@ Het model leest dezelfde tekening niet twee keer precies hetzelfde. Daarom wordt
     - *geen route*: het model verbindt ze, maar er is geen route gevraagd;
     - *andere weg*: er is wel een route getekend, maar elders.
   - Signaallijnen idem, met de signaalkoppelingen van het model.
+  - `npm run loss -- --pairs`: de paren achter *niet in model*, per soort (bv. apparaat–afsluiter) en de grootste afzonderlijk.
+  - Eerste resultaat (*niet in model* 5,6 → 4,5 %): twee fouten in het toevoegen van getekende leidingen die de runs missen.
+    - Een net met een symbool in honderden mini-stukjes (een slang als golflijn) viel uiteen in delen zonder los uiteinde, waardoor `netPath` geen weg vond. Zulke delen worden nu via hun dichtstbijzijnde knopen gekoppeld.
+    - Een terugslagklep met "junction" in de omschrijving gold als elektrisch kastje; alleen "junction box" telt nog.
+    - R3_026 *leiding gevolgd* 92,6 → 97,0 %; R9 69,0 → 72,3 % (*op de PDF* 72,6 → 73,1 %); PID023 +0,2. Geen project slechter.
   - Verder: verzonnen lijnstukken per soort lijn, en de uitkomst van alle routes die de tekening vraagt.
 - **Openbare kopie.** Bij elke push naar `main` maakt de GitHub Action `.github/workflows/public-mirror.yml` een schone kopie en zet die in de openbare repo `pdf2DEXPi_v2-public`.
   - Wat eruit blijft: klanttekeningen (`input/`), antwoordsleutels (`reference/keys/`), `inspiration_corvic_ai/` en het gebouwde OCR-programma.
@@ -103,7 +108,7 @@ Het model leest dezelfde tekening niet twee keer precies hetzelfde. Daarom wordt
   - De regels staan in `scripts/public-export.json`; dat bestand wordt zelf niet gepubliceerd. Een nieuwe klant voeg je daar toe aan `forbidden`.
   - Lokaal bekijken wat er gepubliceerd zou worden: `node scripts/public-export.mjs /tmp/public` (werkt op de laatste commit).
   - Eenmalig nodig: een token met schrijfrecht op alleen de openbare repo, als secret `PUBLIC_REPO_TOKEN` van deze repo.
-- Alles na het gelezen model opnieuw maken — tabellen, databases, DEXPI en rapport — zonder model-calls (bv. na een wijziging in de writer of een handmatige correctie in `drawing.model.json`): `npm run redexpi` (alle projecten) of `npm run redexpi -- <project>`. Past ook de huidige tag- en OCR-regels toe.
+- Alles na het gelezen model opnieuw maken — tabellen, databases, DEXPI en rapport, plus de reparaties uit de getekende lijnen (open eindes sluiten, losse afsluiters plaatsen, ontbrekende getekende leidingen toevoegen, instrumenten koppelen; net als de connect-stap en de A/B-check) — zonder model-calls (bv. na een wijziging in de writer of een handmatige correctie in `drawing.model.json`): `npm run redexpi` (alle projecten) of `npm run redexpi -- <project>`. Past ook de huidige tag- en OCR-regels toe.
 - **Antwoordsleutels en score.** Per tekening staat de handgecontroleerde waarheid in `reference/keys/<project>.key.json` (een nieuwe run overschrijft die niet). Maak een concept uit de huidige uitlezing en controleer het in de app, tab **Sleutel**: K = klopt, X = staat niet op de tekening, velden aanpassen = gecorrigeerd, **+ Ontbrekend item** = kader slepen, koppelingen per instrument afvinken of toevoegen. Score van de huidige uitlezing: knop in de tab, of `npm run score` (alle projecten met een sleutel; `-v` toont gemist / te veel / anders gelezen). Concept vanaf de commandoregel: `npm run score -- --draft <project>`.
 - **Leidingen langs hun getekende route, T-stukken op hun echte plek.** Op vectorbladen bouwt de DEXPI-stap per blad een routeplanner over alle getekende leidingstukken. Die verbindt stukken die op elkaar eindigen of in een T op elkaar uitkomen, en overbrugt een korte onderbreking (pijlpunt, stromingspijl) als het stuk in dezelfde richting doorloopt en er geen symbool tussen zit.
   - Een leiding waarvan de uiteinden niet door één getekend lijnstuk verbonden zijn (via een T-stuk, een andere lijn of een nozzle) volgt nu die getekende route.

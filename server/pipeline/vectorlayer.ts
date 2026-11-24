@@ -633,7 +633,7 @@ export function joinDrawnPipes(model: DrawingModel, netsByPage: Map<number, Net[
   const byId = new Map(model.items.map((i) => [i.id, i]));
   // motors, drives and panels hang on a mechanical or electrical link, a tie-in flag marks a spot on a pipe:
   // none of them is where a pipe ends
-  const notPipeEnd = (i?: Item) => !i || /motor|drive|agitator|panel|cabinet|plc|starter|switch|junction|tie[_ -]?in/i.test(`${i.type ?? ""} ${i.description ?? ""}`);
+  const notPipeEnd = (i?: Item) => !i || /motor|drive|agitator|panel|cabinet|plc|starter|switch|junction[_ -]?box|tie[_ -]?in/i.test(`${i.type ?? ""} ${i.description ?? ""}`);
   const pipeCat = (c?: string) => c === "equipment" || c === "off_page" || c === "valve" || c === "piping_component";
   const label = (id: string) => byId.get(id)?.tag ?? id;
   let seq = Math.max(0, ...model.lines.map((l) => Number(/-(\d+)$/.exec(l.id)?.[1] ?? 0)));

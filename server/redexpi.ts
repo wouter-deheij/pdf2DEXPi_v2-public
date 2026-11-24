@@ -15,7 +15,7 @@ import { report } from "./pipeline/report.ts";
 import { enrichInstruments } from "./pipeline/digitize.ts";
 import { linkLooseByLoop } from "./pipeline/instlinks.ts";
 import { describeIsa } from "./pipeline/merge.ts";
-import { applyGeometry, computeNets, fitBubbles, fitEquipment, labelLeaders, nozzleLabels, tagsFromText, loadVector, mergeWordTokens } from "./pipeline/vectorlayer.ts";
+import { applyGeometry, closeOpenEnds, computeNets, fitBubbles, fitEquipment, joinDrawnPipes, labelLeaders, linkByNets, nozzleLabels, placeOrphans, tagsFromText, loadVector, mergeWordTokens } from "./pipeline/vectorlayer.ts";
 import { dropEdgeGhosts, expandTokens, setOcrOpenPoints, unlistedTags, type Token } from "./pipeline/ocr.ts";
 
 /** Old tag split (letters up to the first digit), to recognise values derived from it. */
@@ -70,6 +70,10 @@ for (const p of projects) {
     if (tagged.length) console.log(`${p}: printed letter code for untagged instruments: ${tagged.join(", ")}`);
     const fitted = fitBubbles(ctx, model, pages);
     if (fitted) console.log(`${p}: ${fitted} instrument boxes set to their drawn bubble`);
+    // the drawn lines settle what the runs leave out, as in a run's connect stage (same as the A/B check)
+    const drawn = computeNets(ctx, model, pages);
+    const fixes = drawn.size ? [...closeOpenEnds(model, drawn), ...placeOrphans(model, drawn), ...joinDrawnPipes(model, drawn), ...linkByNets(model, drawn)] : [];
+    if (fixes.length) console.log(`${p}: from the drawn lines: ${fixes.join("; ")}`);
     const nets = computeNets(ctx, model, pages);
     const g = applyGeometry(model, nets);
     const named = nozzleLabels(ctx, model, pages, nets);

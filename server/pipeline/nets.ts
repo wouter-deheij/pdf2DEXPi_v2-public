@@ -461,14 +461,42 @@ export function netPath(net: Net, from: Pt, to: Pt): Pt[] | null {
   if (new Set(c).size > 1) {
     const loose = nodes.map((_, k) => k).filter((k) => (adj.get(k)?.length ?? 0) <= 1);
     const pairs: [number, number, number][] = [];
-    for (let x = 0; x < loose.length && loose.length < 400; x++)
-      for (let y = x + 1; y < loose.length; y++) pairs.push([loose[x], loose[y], Math.hypot(nodes[loose[x]][0] - nodes[loose[y]][0], nodes[loose[x]][1] - nodes[loose[y]][1])]);
+    const d = (x: number, y: number) => Math.hypot(nodes[x][0] - nodes[y][0], nodes[x][1] - nodes[y][1]);
+    if (loose.length < 400) {
+      for (let x = 0; x < loose.length; x++) for (let y = x + 1; y < loose.length; y++) pairs.push([loose[x], loose[y], d(loose[x], loose[y])]);
+    } else {
+      // many loose ends (a symbol drawn in tiny pieces on the net): only ends within a bridged break of each other
+      const R = 64, cell = new Map<string, number[]>();
+      const key = (p: Pt) => `${Math.floor(p[0] / R)},${Math.floor(p[1] / R)}`;
+      for (const k of loose) (cell.get(key(nodes[k])) ?? cell.set(key(nodes[k]), []).get(key(nodes[k]))!).push(k);
+      for (const x of loose) {
+        const [cx, cy] = [Math.floor(nodes[x][0] / R), Math.floor(nodes[x][1] / R)];
+        for (let i = cx - 1; i <= cx + 1; i++)
+          for (let j = cy - 1; j <= cy + 1; j++) for (const y of cell.get(`${i},${j}`) ?? []) if (x < y && d(x, y) <= R) pairs.push([x, y, d(x, y)]);
+      }
+    }
     pairs.sort((p, q) => p[2] - q[2]);
     for (const [x, y] of pairs) {
       if (c[x] === c[y]) continue;
       edge(x, y);
       c = comp();
       if (new Set(c).size === 1) break;
+    }
+    // a piece without loose ends (a closed outline drawn on the line, a hose drawn as a wave): join it
+    // by its nearest nodes
+    while (new Set(c).size > 1 && nodes.length <= 3000) {
+      let best: [number, number, number] | null = null;
+      for (let x = 0; x < nodes.length; x++) {
+        if (c[x] !== c[0]) continue;
+        for (let y = 0; y < nodes.length; y++) {
+          if (c[y] === c[0]) continue;
+          const dd = d(x, y);
+          if (!best || dd < best[2]) best = [x, y, dd];
+        }
+      }
+      if (!best) break;
+      edge(best[0], best[1]);
+      c = comp();
     }
   }
   const nearest = (p: Pt) => nodes.reduce((best, q, k) => (Math.hypot(q[0] - p[0], q[1] - p[1]) < Math.hypot(nodes[best][0] - p[0], nodes[best][1] - p[1]) ? k : best), 0);

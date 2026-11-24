@@ -38,6 +38,7 @@ const routeRows: Record<string, string | number>[] = [];
 const extraRows: Record<string, string | number>[] = [];
 const total = { pipe: new Map<string, number>(), sig: new Map<string, number>(), drawnPipe: 0, drawnSig: 0 };
 const details: string[] = [];
+const pairMiss = new Map<string, { px: number; cats: string }>();
 
 for (const project of fs.readdirSync(path.join(ROOT, "output")).sort()) {
   if (project.startsWith("_") || (only.length && !only.some((o) => project.startsWith(o)))) continue;
@@ -229,7 +230,14 @@ for (const project of fs.readdirSync(path.join(ROOT, "output")).sort()) {
       }
       else {
         const joined = pairs.filter((p) => (nm.dash ? sigPairs : pipePairs).has(p));
-        if (!joined.length) cause = "niet in model";
+        if (!joined.length) {
+          cause = "niet in model";
+          if (!nm.dash) for (const pr of pairs) {
+            const k = `${project.slice(0, 22)} ${pr}`;
+            const e = pairMiss.get(k) ?? pairMiss.set(k, { px: 0, cats: pr.split("|").map((i) => `${items.get(i)?.category}:${items.get(i)?.type}`).join(" — ") }).get(k)!;
+            e.px += miss / pairs.length;
+          }
+        }
         else {
           const calls = joined.flatMap((p) => routeCalls.get(p) ?? []);
           if (!nm.dash && joined.some((p) => exact.has(p))) cause = "andere weg";
@@ -296,3 +304,14 @@ const sum = (m: Map<string, number>, of: number) => {
 console.log(`Alle projecten samen — gemiste leiding (van ${Math.round(total.drawnPipe)} px getekend):\n${sum(total.pipe, total.drawnPipe)}`);
 console.log(`\nAlle projecten samen — gemiste signaallijn (van ${Math.round(total.drawnSig)} px getekend):\n${sum(total.sig, total.drawnSig)}`);
 if (verbose) console.log(details.join("\n"));
+if (args.includes("--pairs")) {
+  const byCat = new Map<string, number>();
+  for (const e of pairMiss.values()) {
+    const k = e.cats.split(" — ").map((c) => c.split(":")[0]).sort().join(" — ");
+    byCat.set(k, (byCat.get(k) ?? 0) + e.px);
+  }
+  console.log("\nNiet in model, per soort paar (px):");
+  for (const [k, v] of [...byCat].sort((a, b) => b[1] - a[1])) console.log(`  ${Math.round(v).toString().padStart(6)}  ${k}`);
+  console.log("\nNiet in model, grootste paren:");
+  for (const [k, e] of [...pairMiss].sort((a, b) => b[1].px - a[1].px).slice(0, 60)) console.log(`  ${Math.round(e.px).toString().padStart(6)}  ${k}  (${e.cats})`);
+}
