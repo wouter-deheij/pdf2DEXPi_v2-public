@@ -1,0 +1,18 @@
+# dependencies and builds
+node_modules/
+dist/
+
+# generated per run (large, rebuilt from input/)
+output/
+database/
+*.sqlite
+*.sqlite-journal
+
+# archives and local clutter
+Archive.zip
+.DS_Store
+.claude/settings.local.json
+
+# secrets
+.env
+.env.*
