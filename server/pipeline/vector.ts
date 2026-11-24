@@ -160,7 +160,11 @@ export function extractVectorPage(pdf: string, n: number, px: [number, number]):
   const words = extractWords(pdf, n, scale);
   const kind = segs.length > 50 || words.length > 20 ? "vector" : "raster";
   // a pipe that jumps over another line is one drawn line: bridge the arc with a straight piece
-  if (kind === "vector") segs.push(...bridgeHops(segs, px[0]));
+  if (kind === "vector") {
+    const { bridges, drop } = bridgeHops(segs, px[0]);
+    const kept = drop.size ? segs.filter((s) => !drop.has(s.path)) : segs;
+    return { n, kind, scale, segs: [...kept, ...bridges], fills, words };
+  }
   return { n, kind, scale, segs, fills, words };
 }
 

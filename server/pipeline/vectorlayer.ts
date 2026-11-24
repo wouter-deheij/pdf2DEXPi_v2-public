@@ -280,6 +280,38 @@ export function fitBubbles(ctx: RunContext, model: DrawingModel, pages: { n: num
   return n;
 }
 
+const endKey = (e: Endpoint) => `${e.kind}|${e.ref ?? ""}|${e.after ?? ""}`;
+/** A run with no components between these two ends (either way round). */
+function sameRunEnds(l: Line, a: Endpoint, b: Endpoint) {
+  const [x, y] = [endKey(l.from), endKey(l.to)];
+  return (x === endKey(a) && y === endKey(b)) || (x === endKey(b) && y === endKey(a));
+}
+
+/** A pipe joinDrawnPipes added: no components, no service or line number, its fixed confidence. */
+const addedPipe = (l: Line) => !l.components.length && !l.service && !l.line_id && l.confidence === 0.55;
+
+/**
+ * Pipes joinDrawnPipes added a second time with the same two ends (an older redexpi re-ran it over
+ * its own output). Traced runs are never touched: two drawn pipes between the same ends can be real.
+ */
+export function dropDuplicateRuns(model: DrawingModel): string[] {
+  const gone: string[] = [];
+  const kept: Line[] = [];
+  for (const l of model.lines) {
+    if (addedPipe(l) && kept.some((k) => addedPipe(k) && k.page === l.page && sameRunEnds(k, l.from, l.to))) {
+      // nothing may point at the dropped copy: its tees and branches move to the one kept
+      const keep = kept.find((k) => addedPipe(k) && k.page === l.page && sameRunEnds(k, l.from, l.to))!;
+      for (const o of model.lines) for (const side of ["from", "to"] as const) if (o[side].kind === "line" && o[side].ref === l.id) o[side] = { ...o[side], ref: keep.id };
+      for (const sg of model.signals) if (sg.target === l.id) sg.target = keep.id;
+      gone.push(`${l.id} (= ${keep.id})`);
+      continue;
+    }
+    kept.push(l);
+  }
+  model.lines = kept;
+  return gone;
+}
+
 // ---------------------------------------------------------------- valve symbols
 
 /**
@@ -885,9 +917,13 @@ export function joinDrawnPipes(model: DrawingModel, netsByPage: Map<number, Net[
           return true;
         };
         if (!closeOpen(a, b) && !closeOpen(b, a)) {
-          const id = `L${page}-${String(++seq).padStart(3, "0")}`;
-          model.lines.push({ id, page, line_id: null, size: null, spec: null, service: null, from: ep(a), to: ep(b), components: [], insulation: null, confidence: 0.55 });
-          notes.push(`${id}: drawn pipe ${label(a)} – ${label(b)}`);
+          const [fa, tb] = [ep(a), ep(b)];
+          // run again over its own output (redexpi): the pipe added last time is already there
+          if (!model.lines.some((l) => !l.components.length && sameRunEnds(l, fa, tb))) {
+            const id = `L${page}-${String(++seq).padStart(3, "0")}`;
+            model.lines.push({ id, page, line_id: null, size: null, spec: null, service: null, from: fa, to: tb, components: [], insulation: null, confidence: 0.55 });
+            notes.push(`${id}: drawn pipe ${label(a)} – ${label(b)}`);
+          }
         }
         parent.set(find(a), find(b));
         rebuild();
