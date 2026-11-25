@@ -97,6 +97,9 @@ function samples(pts: Pt[], step: number): Pt[] {
 }
 
 /** Grid of segments for "is there a stroke within tol of this point". */
+/** least drawn signal line (px) for a signal recall */
+const MIN_SIGNAL = 200;
+
 class SegGrid {
   private cells = new Map<string, [Pt, Pt][]>();
   constructor(private cell: number) {}
@@ -197,6 +200,16 @@ export function overlayScore(ctx: RunContext, model: DrawingModel, svg: string, 
     const labels = model.items.filter((i) => i.page === pg.n && i.label_box).map((i) => i.label_box!);
     for (const x of pageNets)
       if (labels.some((b) => x.len <= 4 * (b[2] - b[0]) && x.path.some(([a, c]) => [a, c].some((q) => gap(q, b) <= Math.max(12, 0.6 * (b[3] - b[1])))))) sheetWide.add(x.id);
+    // text drawn as vector strokes: the strokes of a line of letters line up and are read as dashes.
+    // A small dashed "net" whose pieces lie on three or more parallel rows is lettering, not a line
+    for (const x of pageNets) {
+      if (!x.dash || Math.max(x.bbox[2] - x.bbox[0], x.bbox[3] - x.bbox[1]) >= 0.03 * pg.W) continue;
+      const hr = new Set<number>(), vr = new Set<number>();
+      for (const [a, b] of x.path)
+        if (Math.abs(a[1] - b[1]) < 1.5) hr.add(Math.round(a[1] / 3));
+        else if (Math.abs(a[0] - b[0]) < 1.5) vr.add(Math.round(a[0] / 3));
+      if (Math.max(hr.size, vr.size) >= 3) sheetWide.add(x.id);
+    }
     const notPipe = notPipeWidths(ctx.state.project);
     for (const x of pageNets)
       if (!x.dash && notPipe.some(([lo, hi]) => x.w >= lo && x.w <= hi)) {
@@ -243,13 +256,14 @@ export function overlayScore(ctx: RunContext, model: DrawingModel, svg: string, 
       res.nets.push({ page: pg.n, net: net.id, dash: net.dash, drawn: Math.round(netAll * step), missed: Math.round(netMiss * step), pieces: pieceMiss });
       if (netMiss * step >= 40) res.misses.push({ page: pg.n, bbox: net.bbox as BBox, length: Math.round(netMiss * step), touches: net.touches.map((t) => t.item) });
     }
-    res.pages.push({ n: pg.n, precision: ratio(h, o), pipeRecall: ratio(ph, pa), signalRecall: ratio(sh, sa), ours: Math.round(o * step), drawnPipe: Math.round(pa * step), drawnSignal: Math.round(sa * step) });
+    res.pages.push({ n: pg.n, precision: ratio(h, o), pipeRecall: ratio(ph, pa), signalRecall: sa * step >= MIN_SIGNAL ? ratio(sh, sa) : null, ours: Math.round(o * step), drawnPipe: Math.round(pa * step), drawnSignal: Math.round(sa * step) });
     [hit, ours, pr, pAll, sr, sAll] = [hit + h, ours + o, pr + ph, pAll + pa, sr + sh, sAll + sa];
     draw.push({ n: pg.n, W: pg.W, H: pg.H, file: pg.file, ok, extra, miss });
   }
   res.precision = ratio(hit, ours);
   res.pipeRecall = ratio(pr, pAll);
-  res.signalRecall = ratio(sr, sAll);
+  // a few short stretches are no basis for a score
+  res.signalRecall = sAll * step >= MIN_SIGNAL ? ratio(sr, sAll) : null;
   res.misses.sort((a, b) => b.length - a.length);
   res.extras.sort((a, b) => b.length - a.length);
   if (!pngDir) return res;
