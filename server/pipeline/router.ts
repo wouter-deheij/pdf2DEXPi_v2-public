@@ -18,6 +18,8 @@ export interface PageRouter {
   why: string;
   /** where a route from `from` first meets the polyline `onto` (a branch reaching its parent run) */
   meet(from: RouteEnd, onto: Pt[]): Pt | null;
+  /** the drawn line from `from` toward `toward`, as far as it goes (no knee to close the gap) */
+  stub(from: RouteEnd, toward: RouteEnd): Pt[] | null;
   /** the same over the thin and the dashed lines only (signal and data lines), never over a pipe */
   signal?: PageRouter;
 }
@@ -384,6 +386,31 @@ export function buildRouter(nets: Net[], boxes: BBox[], W: number, apparatus: BB
       const reach = Math.min(...onto.map((p) => Math.abs(p[0] - c[0]) + Math.abs(p[1] - c[1]))) * 1.4 + 4 * snapR + 0.05 * W;
       const path = search(s, (k) => on(nodes[k]), reach);
       return path ? nodes[path[path.length - 1]] : null;
+    },
+    stub(from, toward) {
+      const s0 = startOf(from);
+      if (!s0) return null;
+      const s: Start = { q: s0.q, links: s0.links.filter((l) => !l.from) };
+      const direct = gapTo(centreOf(from), toward);
+      const d = new Map<number, number>(), prev = new Map<number, number>();
+      const heap = new MinHeap();
+      for (const l of s.links) if (l.d < (d.get(l.to) ?? Infinity)) (d.set(l.to, l.d), prev.set(l.to, -1), heap.push(l.d, l.to));
+      let best = -1, bg = direct;
+      while (heap.size) {
+        const [du, u] = heap.pop()!;
+        if (du > (d.get(u) ?? Infinity) || du > 0.5 * direct) continue;
+        const g = gapTo(nodes[u], toward);
+        if (g < bg - 1) [best, bg] = [u, g];
+        for (const e of adj[u]) {
+          const nd = du + e.d;
+          if (nd < (d.get(e.to) ?? Infinity)) (d.set(e.to, nd), prev.set(e.to, u), heap.push(nd, e.to));
+        }
+      }
+      if (best < 0) return null;
+      const path: number[] = [];
+      for (let k = best; k !== -1; k = prev.get(k)!) path.unshift(k);
+      const pts: Pt[] = [...("p" in from ? [s.q] : []), ...path.map((k) => nodes[k])];
+      return pts.length >= 2 ? straighten(pts) : null;
     },
   };
   return r;
