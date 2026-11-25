@@ -20,6 +20,8 @@ export interface PageRouter {
   meet(from: RouteEnd, onto: Pt[]): Pt | null;
   /** the drawn line from `from` toward `toward`, as far as it goes (no knee to close the gap) */
   stub(from: RouteEnd, toward: RouteEnd): Pt[] | null;
+  /** the share of a polyline's length that lies on a drawn (solid) line */
+  onDrawn(pts: Pt[], within?: number): number;
   /** the same over the thin and the dashed lines only (signal and data lines), never over a pipe */
   signal?: PageRouter;
 }
@@ -386,6 +388,19 @@ export function buildRouter(nets: Net[], boxes: BBox[], W: number, apparatus: BB
       const reach = Math.min(...onto.map((p) => Math.abs(p[0] - c[0]) + Math.abs(p[1] - c[1]))) * 1.4 + 4 * snapR + 0.05 * W;
       const path = search(s, (k) => on(nodes[k]), reach);
       return path ? nodes[path[path.length - 1]] : null;
+    },
+    onDrawn(pts, within = tol + 2) {
+      let on = 0, all = 0;
+      for (let k = 1; k < pts.length; k++) {
+        const [a, b] = [pts[k - 1], pts[k]];
+        const L = dist(a, b), n = Math.max(1, Math.ceil(L / 4));
+        for (let i = 0; i < n; i++) {
+          const t = (i + 0.5) / n, q: Pt = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
+          all += L / n;
+          for (const j of segsNear(q, within)) if (project(q, pieces[j][0], pieces[j][1]).d <= within) { on += L / n; break; }
+        }
+      }
+      return all ? on / all : 0;
     },
     stub(from, toward) {
       const s0 = startOf(from);

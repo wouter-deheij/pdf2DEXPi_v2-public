@@ -116,6 +116,8 @@ const C_LINE: RGB = [40, 40, 40], C_INSTR: RGB = [0, 128, 0], C_SIG: RGB = [0, 0
 const GAP = 0.05;
 /** symbols where a pipe stops and picks up again at a label elsewhere on the page (a jump) */
 const JUMP = new Set(["vent_drain_end", "valve_reference_arrow", "continuation_connector"]);
+/** a knee over a tenth of the sheet with under 30 % of it on a drawn line is not drawn (vector pages) */
+const KNEE_MAX = 0.1, KNEE_ON = 0.3;
 
 const rg = (represents: string | undefined, groups: G[] = [], nodes: NP[] = []): G => ({ type: "Core/Diagram.RepresentationGroup", represents, groups, nodes });
 const stat = (...els: El[]): G => ({ type: "Core/Diagram.Static", els });
@@ -230,7 +232,7 @@ export function buildDiagram(model: DrawingModel, trace: DexpiTrace, routers?: M
     const st: Stroke = { c: C_SIG, w: 0.18, dash: sl.type === "electrical" || sl.type === "software" ? "Dash" : "Solid" };
     return sl.path.filter((pl) => pl.length >= 2).map((pl) => ({ t: "poly" as const, pts: pl.map((q) => toMM(sl.page, q)), stroke: st }));
   };
-  let routed = 0, pipesDrawn = 0, partlyRouted = 0, sigRouted = 0, jumps = 0;
+  let routed = 0, pipesDrawn = 0, partlyRouted = 0, sigRouted = 0, jumps = 0, longKnees = 0;
   const kneeWhy = new Map<string, number>();
   const usedShapes = new Set<string>();
   const use = (shape: string, p: Pt, rot = 0, sx = 1, sy = sx): El => (usedShapes.add(shape), { t: "use", shape, p, rot: ((rot % 360) + 360) % 360, sx, sy });
@@ -506,7 +508,32 @@ export function buildDiagram(model: DrawingModel, trace: DexpiTrace, routers?: M
           if (st) g.push(rg(p.id, [stat({ t: "poly", pts: st.map((q) => toMM(ef!.page, q)), stroke: { c: C_LINE, w: 0.35 } })]));
           continue;
         }
-        g.push(rg(p.id, [stat({ t: "conn", src: `${p.src}.pos`, tgt: `${p.tgt}.pos`, inner: exact ?? knee(a, b), stroke: { c: C_LINE, w: 0.35 } })]));
+        // no drawn line joins the ends: of the two knees take the one more on the drawn lines; a long
+        // knee mostly off them would cross the sheet where the PDF has no line, so then only the
+        // drawn stretches leaving each end toward the other are drawn
+        let inner = exact;
+        if (!inner && routers?.size) {
+          const ea = routeEnd(p.src, a), eb = routeEnd(p.tgt, b);
+          const R = ea && eb && ea.page === eb.page ? routers.get(ea.page) : undefined;
+          if (R) {
+            const off = pageOff.get(ea!.page) ?? 0;
+            const px = (q: Pt): Pt => [q[0] / MM, (q[1] - off) / MM];
+            // on a drawn line (a few px; a 1 mm tolerance did worse); thin and dashed lines count too (the model has some runs the
+            // drawing shows as signal lines)
+            const onAny = (q: Pt[]) => Math.max(R.onDrawn(q), R.signal?.onDrawn(q) ?? 0);
+            const ks = [knee(a, b), knee(b, a)].map((k) => ({ k, on: onAny([a, ...k, b].map(px)) })).sort((x, y) => y.on - x.on);
+            inner = ks[0].k;
+            const on = ks[0].on;
+            if ((legLen(p) ?? 0) >= KNEE_MAX * W && on < KNEE_ON) {
+              longKnees++;
+              pipesDrawn--;
+              const parts = [R.stub(ea!.end, eb!.end), R.stub(eb!.end, ea!.end)].filter((x): x is Pt[] => !!x);
+              if (parts.length) g.push(rg(p.id, parts.map((st) => stat({ t: "poly", pts: st.map((q) => toMM(ea!.page, q)), stroke: { c: C_LINE, w: 0.35 } }))));
+              continue;
+            }
+          }
+        }
+        g.push(rg(p.id, [stat({ t: "conn", src: `${p.src}.pos`, tgt: `${p.tgt}.pos`, inner: inner ?? knee(a, b), stroke: { c: C_LINE, w: 0.35 } })]));
       }
       const groupsOut: G[] = [];
       if (si === 0) {
@@ -604,7 +631,7 @@ export function buildDiagram(model: DrawingModel, trace: DexpiTrace, routers?: M
   const loose: El[] = [];
   for (const sl of sigLines.values()) if (!sigDrawn.has(sl.id)) loose.push(...(sigEls(sl.id) ?? []));
   if (loose.length) groups.push(stat(...loose));
-  if (routes.size || routers?.size) notes.push(`${routed} of ${pipesDrawn} pipes drawn along their PDF route (${partlyRouted} of them partly: the drawn line followed as far as it goes, the rest as a knee), ${teesDrawn} tees where the drawn branch meets its run;${jumps ? ` ${jumps} pipes across a jump arrow left undrawn, as in the PDF;` : ""} ${sigDrawn.size} drawn signal lines, ${sigRouted} signals along thin drawn lines.${kneeWhy.size ? ` Not routed: ${[...kneeWhy].map(([k, v]) => `${k} ${v}`).join(", ")}.` : ""}`);
+  if (routes.size || routers?.size) notes.push(`${routed} of ${pipesDrawn} pipes drawn along their PDF route (${partlyRouted} of them partly: the drawn line followed as far as it goes, the rest as a knee), ${teesDrawn} tees where the drawn branch meets its run;${jumps ? ` ${jumps} pipes across a jump arrow left undrawn, as in the PDF;` : ""}${longKnees ? ` ${longKnees} long unrouted pipes drawn only where the drawn line leaves their ends;` : ""} ${sigDrawn.size} drawn signal lines, ${sigRouted} signals along thin drawn lines.${kneeWhy.size ? ` Not routed: ${[...kneeWhy].map(([k, v]) => `${k} ${v}`).join(", ")}.` : ""}`);
 
   // ---- 8. frame and provenance
   const m = 3;
