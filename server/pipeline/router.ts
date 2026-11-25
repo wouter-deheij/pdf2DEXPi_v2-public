@@ -61,6 +61,8 @@ class MinHeap {
   }
 }
 
+/** a line stopping up to this many break lengths short of a symbol and pointing at it starts a route there */
+const ARROW_GAP = 2;
 const dist = (p: Pt, q: Pt) => Math.hypot(p[0] - q[0], p[1] - q[1]);
 function project(p: Pt, a: Pt, b: Pt): { q: Pt; t: number; d: number } {
   const dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy;
@@ -144,6 +146,12 @@ export function buildRouter(nets: Net[], boxes: BBox[], W: number, apparatus: BB
   });
   // breaks: a loose end continues in its own direction to the nearest node across a short gap
   const loose = nodes.map((_, k) => k).filter((k) => adj[k].length === 1);
+  /** the direction each loose end points in (away from its piece) */
+  const looseDir = new Map<number, Pt>();
+  for (const k of loose) {
+    const from = nodes[k], back = nodes[adj[k][0].to], L = dist(from, back);
+    if (L >= 1e-6) looseDir.set(k, [(from[0] - back[0]) / L, (from[1] - back[1]) / L]);
+  }
   for (const k of loose) {
     const from = nodes[k], back = nodes[adj[k][0].to];
     const L = dist(from, back);
@@ -291,7 +299,23 @@ export function buildRouter(nets: Net[], boxes: BBox[], W: number, apparatus: BB
       if (q[0] < b[0] - margin || q[0] > b[2] + margin || q[1] < b[1] - margin || q[1] > b[3] + margin) continue;
       for (const l of onPiece(j, q).links) if (l.d < (links.get(l.to) ?? Infinity)) links.set(l.to, l.d);
     }
-    return links.size ? { q: c, links: [...links].map(([to, d]) => ({ to, d })) } : null;
+    if (links.size) return { q: c, links: [...links].map(([to, d]) => ({ to, d })) };
+    // nothing in or through it: a drawn line that stops just short of the symbol and points at it
+    // (an arrowhead or a flow arrow between the line and a valve breaks the stroke), across the same
+    // short break the router bridges between pieces, with no other symbol in the gap
+    const near: Link[] = [];
+    for (const k of nodesNear(c, r + ARROW_GAP * gapMax)) {
+      const u = looseDir.get(k);
+      if (!u) continue;
+      const p = nodes[k], g = gapTo(p, e);
+      if (g <= 0 || g > ARROW_GAP * gapMax) continue;
+      const tip: Pt = [p[0] + u[0] * (g + 2 * margin), p[1] + u[1] * (g + 2 * margin)];
+      if (!hitsBox(p, tip, [b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin])) continue;
+      const at: Pt = [p[0] + u[0] * g, p[1] + u[1] * g];
+      if (boxes.some((x) => !(x[0] === b[0] && x[1] === b[1] && x[2] === b[2] && x[3] === b[3]) && hitsBox(p, at, x))) continue;
+      near.push({ to: k, d: g });
+    }
+    return near.length ? { q: c, links: near } : null;
   };
   const centreOf = (e: RouteEnd): Pt => ("p" in e ? e.p : [(e.box[0] + e.box[2]) / 2, (e.box[1] + e.box[3]) / 2]);
 

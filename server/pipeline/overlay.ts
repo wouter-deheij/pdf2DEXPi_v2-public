@@ -210,6 +210,19 @@ export function overlayScore(ctx: RunContext, model: DrawingModel, svg: string, 
         else if (Math.abs(a[0] - b[0]) < 1.5) vr.add(Math.round(a[0] / 3));
       if (Math.max(hr.size, vr.size) >= 3) sheetWide.add(x.id);
     }
+    // a dashed rectangle around a part of the sheet ("alternative", "not used", a package boundary) is
+    // a zone frame, not a signal line: all four sides of its box drawn for at least half their length
+    for (const x of pageNets) {
+      const [x0, y0, x1, y1] = x.bbox;
+      if (!x.dash || x1 - x0 < 0.03 * pg.W || y1 - y0 < 0.03 * pg.W) continue;
+      const side = [0, 0, 0, 0];
+      for (const [a, b] of x.path) {
+        const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (Math.abs(a[1] - b[1]) < 2) side[Math.abs(a[1] - y0) < 4 ? 0 : Math.abs(a[1] - y1) < 4 ? 1 : 4] += L;
+        else if (Math.abs(a[0] - b[0]) < 2) side[Math.abs(a[0] - x0) < 4 ? 2 : Math.abs(a[0] - x1) < 4 ? 3 : 4] += L;
+      }
+      if (side[0] >= 0.5 * (x1 - x0) && side[1] >= 0.5 * (x1 - x0) && side[2] >= 0.5 * (y1 - y0) && side[3] >= 0.5 * (y1 - y0)) sheetWide.add(x.id);
+    }
     const notPipe = notPipeWidths(ctx.state.project);
     for (const x of pageNets)
       if (!x.dash && notPipe.some(([lo, hi]) => x.w >= lo && x.w <= hi)) {
